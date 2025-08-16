@@ -1,6 +1,8 @@
 import os
 import pandas as pd
 import numpy as np
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
 
@@ -50,3 +52,39 @@ train_x = np.array(train_x)
 train_y = np.array(train_y)
 test_x = np.array(test_x)
 test_y = np.array(test_y)
+
+
+class TrafficSignDataset(Dataset):
+    def __init__(self, images, labels, transform=None):
+        self.images = images
+        self.labels = labels
+        self.transform = transform
+
+    def __len__(self):
+        return len(self.images)
+
+    def __getitem__(self, idx):
+        image = self.images[idx]
+        label = self.labels[idx]
+
+        if isinstance(image, np.ndarray):
+            image = Image.fromarray(image)
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, label
+
+
+
+transform = transforms.Compose([
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.5, 0.5, 0.5],
+                         std=[0.5, 0.5, 0.5])
+])
+
+train_dataset = TrafficSignDataset(train_x, train_y, transform=transform)
+test_dataset = TrafficSignDataset(test_x, test_y, transform=transform)
+train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+
