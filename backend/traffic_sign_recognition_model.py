@@ -9,6 +9,9 @@ IMG_SIZE = (64, 64)
 train_df = pd.read_csv('data/GTSRB/Train.csv', sep='\t')
 test_df = pd.read_csv('data/GTSRB/Test.csv', sep='\t')
 
+train_df = pd.DataFrame(data=[row[0].split(',') for row in train_df.values.tolist()], columns=train_df.columns.values[0].split(','))
+test_df = pd.DataFrame(data=[row[0].split(',') for row in test_df.values.tolist()], columns=test_df.columns.values[0].split(','))
+
 def extract_sign_data(df):
     """
     Extract sign data from the images
