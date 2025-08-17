@@ -55,6 +55,9 @@ test_y = np.array(test_y)
 
 
 class TrafficSignDataset(Dataset):
+    """
+    A PyTorch Dataset class to simplify access and transformations on the data
+    """
     def __init__(self, images, labels, transform=None):
         self.images = images
         self.labels = labels
