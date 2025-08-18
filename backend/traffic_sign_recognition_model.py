@@ -1,12 +1,16 @@
 import os
 import pandas as pd
 import numpy as np
+import torch
+from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
 
 IMG_SIZE = (64, 64)
+EPOCHS = 10
+LEARNING_RATE = 1e-3
 
 train_df = pd.read_csv('data/GTSRB/Train.csv', sep='\t')
 test_df = pd.read_csv('data/GTSRB/Test.csv', sep='\t')
@@ -47,6 +51,7 @@ def extract_sign_data(df):
 
 train_x, train_y = extract_sign_data(train_df)
 test_x, test_y = extract_sign_data(test_df)
+num_classes = len(set(train_y))
 
 train_x = np.array(train_x)
 train_y = np.array(train_y)
@@ -76,7 +81,7 @@ class TrafficSignDataset(Dataset):
         if self.transform:
             image = self.transform(image)
 
-        return image, label
+        return image, torch.tensor(label, dtype=torch.long)
 
 
 
@@ -90,4 +95,81 @@ train_dataset = TrafficSignDataset(train_x, train_y, transform=transform)
 test_dataset = TrafficSignDataset(test_x, test_y, transform=transform)
 train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+
+class TrafficSignCNN(nn.Module):
+    """
+    A Neural Network class that uses convolutional feature extractors and fully connected classifier layers
+    for traffic sign recognition
+    """
+    def __init__(self, num_classes):
+        super(TrafficSignCNN, self).__init__()
+        self.feature_extractor_layers = nn.Sequential(
+            nn.Conv2d(3, 32, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2),
+        )
+        self.classifier_layers = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(64 * 16 * 16, 128),
+            nn.ReLU(),
+            nn.Linear(128, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.feature_extractor_layers(x)
+        x = self.classifier_layers(x)
+        return x
+
+
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = TrafficSignCNN(num_classes).to(device)
+loss_fn = nn.CrossEntropyLoss()
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+
+for epoch in range(EPOCHS):
+    model.train()
+    sum_loss = 0.0
+    num_correct = 0
+    total = 0
+
+    for batch_id, (images, labels) in enumerate(train_loader):
+        images: torch.Tensor = images.to(device)
+        labels: torch.Tensor = labels.to(device)
+
+        optimizer.zero_grad()
+        outputs = model(images)
+        loss = loss_fn(outputs, labels)
+        loss.backward()
+        optimizer.step()
+
+        sum_loss += loss.item()
+        _, predictions = outputs.max(1)
+        total += labels.size(0)
+        num_correct += predictions.eq(labels).sum().item()
+
+    train_accuracy = 100.0 * num_correct / total
+    avg_loss = sum_loss / len(train_loader)
+    print()
+    print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {avg_loss:.4f}, Accuracy: {train_accuracy:.2f}%")
+
+
+model.eval()
+num_correct = 0
+total = 0
+
+with torch.no_grad():
+    for batch_id, (images, labels) in enumerate(test_loader):
+        images: torch.Tensor = images.to(device)
+        labels: torch.Tensor = labels.to(device)
+        outputs = model(images)
+        _, predictions = outputs.max(1)
+        total += labels.size(0)
+        num_correct += predictions.eq(labels).sum().item()
+
+test_accuracy = 100.0 * num_correct / total
+print(f"Test Accuracy: {test_accuracy:.2f}%")
 
