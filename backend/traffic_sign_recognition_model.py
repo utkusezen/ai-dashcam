@@ -136,7 +136,7 @@ for epoch in range(EPOCHS):
     num_correct = 0
     total = 0
 
-    for batch_id, (images, labels) in enumerate(train_loader):
+    for batch_id, (images, labels) in tqdm(enumerate(train_loader), total=len(train_loader)):
         images: torch.Tensor = images.to(device)
         labels: torch.Tensor = labels.to(device)
 
@@ -162,7 +162,7 @@ num_correct = 0
 total = 0
 
 with torch.no_grad():
-    for batch_id, (images, labels) in enumerate(test_loader):
+    for batch_id, (images, labels) in tqdm(enumerate(test_loader), total=len(test_loader)):
         images: torch.Tensor = images.to(device)
         labels: torch.Tensor = labels.to(device)
         outputs = model(images)
