@@ -47,8 +47,9 @@ def load_image_and_label_data(image_path, label_path):
     if label_path:
         with open(label_path, "r") as f:
             lines = f.readlines()
-            labels.append([list(map(float, l.strip().split())) for l in lines])
-
+            for line in lines:
+                label = list(map(float, line.strip().split()))
+                labels.append(label)
     return image, labels
 
 def convert_bounding_box_to_coordinates(bounding_box):
@@ -57,10 +58,13 @@ def convert_bounding_box_to_coordinates(bounding_box):
     :param bounding_box: list of attributes of the bounding box, assumed to be of form (x, y, w, h)
     :return: a list of x, y coordinates of form (x1, y1, x2, y2)
     """
-    x, y, w, h = bounding_box
-    x1, y1 = x - w / 2, y - h / 2
-    x2, y2 = x + w / 2, y + h / 2
-    return x1, y1, x2, y2
+    if bounding_box:
+        x, y, w, h = bounding_box
+        x1, y1 = x - w / 2, y - h / 2
+        x2, y2 = x + w / 2, y + h / 2
+        return x1, y1, x2, y2
+    return []
+
 
 def resize_image_and_bounding_boxes(max_size, image, boxes):
     """
@@ -83,7 +87,13 @@ def resize_image_and_bounding_boxes(max_size, image, boxes):
     scale_x = new_width / cur_width
     scale_y = new_height / cur_height
 
-    new_boxes = [(x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y) for x1, y1, x2, y2 in boxes]
+    new_boxes = []
+    for box in boxes:
+        if box:
+            x1, y1, x2, y2 = box
+            new_boxes.append([x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y])
+        else:
+            new_boxes.append([])
 
     resized_image = image.resize((new_width, new_height))
 
@@ -119,11 +129,16 @@ class TrafficSignDataset(Dataset):
         image, labels = load_image_and_label_data(image_path, label_path)
 
         boxes = [l[1:] for l in labels]
-        class_ids = [l[:1] for l in labels]
+        class_ids = [l[0] for l in labels]
         boxes = list(map(convert_bounding_box_to_coordinates, boxes))
         image, boxes = resize_image_and_bounding_boxes(self.max_size, image, boxes)
 
-        boxes = torch.tensor(boxes, dtype=torch.float)
+        boxes = [
+            torch.tensor(box, dtype=torch.float)
+            if box
+            else torch.empty((0, 4), dtype=torch.float)
+            for box in boxes
+        ]
         class_ids = torch.tensor(class_ids, dtype=torch.int64)
         target = {"boxes": boxes, "labels": class_ids}
 
