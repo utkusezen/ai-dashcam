@@ -1,15 +1,20 @@
 import os
-import pandas as pd
-import numpy as np
 import torch
+import torchvision.models.detection
 from PIL import Image
+from torch import optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
+from torchvision.models.detection import FasterRCNN_ResNet50_FPN_Weights
+from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from tqdm import tqdm
 
 TRAIN_DATA_PATH = "data/GTSDB_TT100k/Train"
 TEST_DATA_PATH = "data/GTSDB_TT100k/Test"
 MAX_IMG_SIZE = 512
+EPOCHS = 10
+LEARNING_RATE = 1e-3
+BATCH_SIZE = 4
 
 def collect_sign_detection_path_data(directory):
     """
@@ -58,13 +63,10 @@ def convert_bounding_box_to_coordinates(bounding_box):
     :param bounding_box: list of attributes of the bounding box, assumed to be of form (x, y, w, h)
     :return: a list of x, y coordinates of form (x1, y1, x2, y2)
     """
-    if bounding_box:
-        x, y, w, h = bounding_box
-        x1, y1 = x - w / 2, y - h / 2
-        x2, y2 = x + w / 2, y + h / 2
-        return x1, y1, x2, y2
-    return []
-
+    x, y, w, h = bounding_box
+    x1, y1 = x - w / 2, y - h / 2
+    x2, y2 = x + w / 2, y + h / 2
+    return x1, y1, x2, y2
 
 def resize_image_and_bounding_boxes(max_size, image, boxes):
     """
@@ -87,15 +89,8 @@ def resize_image_and_bounding_boxes(max_size, image, boxes):
     scale_x = new_width / cur_width
     scale_y = new_height / cur_height
 
-    new_boxes = []
-    for box in boxes:
-        if box:
-            x1, y1, x2, y2 = box
-            new_boxes.append([x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y])
-        else:
-            new_boxes.append([])
-
     resized_image = image.resize((new_width, new_height))
+    new_boxes = [[x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y] for x1, y1, x2, y2 in boxes]
 
     return resized_image, new_boxes
 
@@ -128,18 +123,17 @@ class TrafficSignDataset(Dataset):
 
         image, labels = load_image_and_label_data(image_path, label_path)
 
-        boxes = [l[1:] for l in labels]
-        class_ids = [l[0] for l in labels]
-        boxes = list(map(convert_bounding_box_to_coordinates, boxes))
-        image, boxes = resize_image_and_bounding_boxes(self.max_size, image, boxes)
+        if labels:
+            boxes = [l[1:] for l in labels]
+            boxes = list(map(convert_bounding_box_to_coordinates, boxes))
+            image, boxes = resize_image_and_bounding_boxes(self.max_size, image, boxes)
+            boxes = torch.tensor(boxes, dtype=torch.float)
+            class_ids = torch.full((len(labels),), 1, dtype=torch.int64)
+        else:
+            image, _ = resize_image_and_bounding_boxes(self.max_size, image, [])
+            boxes = torch.zeros((0, 4), dtype=torch.float)
+            class_ids = torch.full((1,), 0, dtype=torch.int64)
 
-        boxes = [
-            torch.tensor(box, dtype=torch.float)
-            if box
-            else torch.empty((0, 4), dtype=torch.float)
-            for box in boxes
-        ]
-        class_ids = torch.tensor(class_ids, dtype=torch.int64)
         target = {"boxes": boxes, "labels": class_ids}
 
         if self.transform:
@@ -156,5 +150,28 @@ transform = transforms.Compose([transforms.ToTensor()])
 train_dataset = TrafficSignDataset(train_x, train_y, MAX_IMG_SIZE, transform)
 test_dataset = TrafficSignDataset(test_x, test_y, MAX_IMG_SIZE, transform)
 
-train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, collate_fn=custom_collate_fn)
-test_loader = DataLoader(test_dataset, batch_size=2, shuffle=True, collate_fn=custom_collate_fn)
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=custom_collate_fn)
+test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=custom_collate_fn)
+
+model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
+in_features = model.roi_heads.box_predictor.cls_score.in_features
+model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 2)
+
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = model.to(device)
+model.train()
+for epoch in range(EPOCHS):
+    sum_loss = 0.0
+    for batch in tqdm(train_loader):
+        images, targets = batch
+        images = [img.to(device) for img in images]
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+        optimizer.zero_grad()
+        losses = model(images, targets)
+        loss = sum(l for l in losses.values())
+        sum_loss += loss
+        loss.backward()
+        optimizer.step()
+    print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {sum_loss:.4f}%")

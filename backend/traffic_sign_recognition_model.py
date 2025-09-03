@@ -11,6 +11,7 @@ from tqdm import tqdm
 IMG_SIZE = (64, 64)
 EPOCHS = 10
 LEARNING_RATE = 1e-3
+BATCH_SIZE = 64
 
 train_df = pd.read_csv('data/GTSRB/Train.csv', sep='\t')
 test_df = pd.read_csv('data/GTSRB/Test.csv', sep='\t')
@@ -93,8 +94,8 @@ transform = transforms.Compose([
 
 train_dataset = TrafficSignDataset(train_x, train_y, transform=transform)
 test_dataset = TrafficSignDataset(test_x, test_y, transform=transform)
-train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
+test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
 
 class TrafficSignCNN(nn.Module):
     """
