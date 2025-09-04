@@ -15,6 +15,7 @@ MAX_IMG_SIZE = 512
 EPOCHS = 10
 LEARNING_RATE = 1e-3
 BATCH_SIZE = 4
+MIN_SCORE = 0.9
 
 def collect_sign_detection_path_data(directory):
     """
@@ -174,4 +175,26 @@ for epoch in range(EPOCHS):
         sum_loss += loss
         loss.backward()
         optimizer.step()
-    print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {sum_loss:.4f}%")
+    print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {sum_loss:.4f}")
+
+model.eval()
+best_boxes_per_image = []
+best_scores_per_image = []
+with torch.no_grad():
+    for batch in tqdm(test_loader):
+        images, targets = batch
+        images = [img.to(device) for img in images]
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+        predictions = model(images, targets)
+        for p in predictions:
+            mask_good_scores = p["scores"] >= MIN_SCORE
+            best_boxes_per_image.append(p["boxes"][mask_good_scores])
+            best_scores_per_image.append(p["scores"][mask_good_scores])
+        break
+
+for i in range(len(best_boxes_per_image)):
+    print(f"Image {i + 1}: \n "
+          f"Signs found: {len(best_boxes_per_image[i])} \n "
+          f"Bounding Boxes: {best_boxes_per_image[i].tolist()} \n "
+          f"Scores: {best_scores_per_image[i].tolist()}")
