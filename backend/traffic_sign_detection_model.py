@@ -91,7 +91,8 @@ def resize_image_and_bounding_boxes(max_size, image, boxes):
     scale_y = new_height / cur_height
 
     resized_image = image.resize((new_width, new_height))
-    new_boxes = [[x1 * scale_x, y1 * scale_y, x2 * scale_x, y2 * scale_y] for x1, y1, x2, y2 in boxes]
+    new_boxes = [[x1 * cur_width * scale_x, y1 * cur_height * scale_y,
+                  x2 * cur_width * scale_x, y2 * cur_height * scale_y] for x1, y1, x2, y2 in boxes]
 
     return resized_image, new_boxes
 
@@ -133,7 +134,7 @@ class TrafficSignDataset(Dataset):
         else:
             image, _ = resize_image_and_bounding_boxes(self.max_size, image, [])
             boxes = torch.zeros((0, 4), dtype=torch.float)
-            class_ids = torch.full((1,), 0, dtype=torch.int64)
+            class_ids = torch.zeros((0,), dtype=torch.int64)
 
         target = {"boxes": boxes, "labels": class_ids}
 
@@ -171,7 +172,7 @@ for epoch in range(EPOCHS):
 
         optimizer.zero_grad()
         losses = model(images, targets)
-        loss = sum(l for l in losses.values())
+        loss = sum(losses.values())
         sum_loss += loss
         loss.backward()
         optimizer.step()
@@ -186,12 +187,11 @@ with torch.no_grad():
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
-        predictions = model(images, targets)
+        predictions = model(images)
         for p in predictions:
             mask_good_scores = p["scores"] >= MIN_SCORE
             best_boxes_per_image.append(p["boxes"][mask_good_scores])
             best_scores_per_image.append(p["scores"][mask_good_scores])
-        break
 
 for i in range(len(best_boxes_per_image)):
     print(f"Image {i + 1}: \n "
