@@ -1,21 +1,27 @@
 import os
+from pathlib import Path
 import torch
 import torchvision.models.detection
 from PIL import Image
+from matplotlib import patches, pyplot as plt
 from torch import optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from torchvision.models.detection import FasterRCNN_ResNet50_FPN_Weights
+from torchvision.models.detection import FasterRCNN_MobileNet_V3_Large_320_FPN_Weights
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from tqdm import tqdm
 
 TRAIN_DATA_PATH = "data/GTSDB_TT100k/Train"
 TEST_DATA_PATH = "data/GTSDB_TT100k/Test"
+SAVE_RESULT_PATH = "results/detection/"
 MAX_IMG_SIZE = 512
 EPOCHS = 10
 LEARNING_RATE = 1e-3
+MOMENTUM = 0.9
+WEIGHT_DECAY = 0.0005
 BATCH_SIZE = 4
 MIN_SCORE = 0.9
+Path(SAVE_RESULT_PATH).mkdir(parents=True, exist_ok=True)
 
 def collect_sign_detection_path_data(directory):
     """
@@ -104,6 +110,26 @@ def custom_collate_fn(batch):
     """
     return tuple(zip(*batch))
 
+def draw_bounding_boxes(name, image, boxes, scores):
+    """
+    Draws predicted bounding boxes on an image with corresponding scores.
+    Saves images as .jpg in "results/detection/"
+    :param name: name of the file that the image is saved as
+    :param image: image to draw bounding boxes on
+    :param boxes: the predicted bounding boxes
+    :param scores: the predicted scores
+    :return: None
+    """
+    fig, ax = plt.subplots()
+    ax.imshow(image)
+    for (x1, y1, x2, y2), score in zip(boxes, scores):
+        rectangle = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, color="g", linewidth=2)
+        ax.add_patch(rectangle)
+        ax.text(x1, y1, f"{score:.2f}", color="white",
+                fontsize=8, bbox=dict(facecolor="red", alpha=0.5))
+    plt.savefig(SAVE_RESULT_PATH + f"{name}.jpg")
+    plt.close(fig)
+
 
 class TrafficSignDataset(Dataset):
     """
@@ -152,15 +178,16 @@ transform = transforms.Compose([transforms.ToTensor()])
 train_dataset = TrafficSignDataset(train_x, train_y, MAX_IMG_SIZE, transform)
 test_dataset = TrafficSignDataset(test_x, test_y, MAX_IMG_SIZE, transform)
 
-train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=custom_collate_fn)
-test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=custom_collate_fn)
+train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=custom_collate_fn, pin_memory=True)
+test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=custom_collate_fn, pin_memory=True)
 
-model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=FasterRCNN_ResNet50_FPN_Weights.DEFAULT)
+model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_320_fpn(weights=FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT)
 in_features = model.roi_heads.box_predictor.cls_score.in_features
 model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 2)
 
-optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+optimizer = optim.SGD(model.parameters(), lr=LEARNING_RATE, momentum=MOMENTUM, weight_decay=WEIGHT_DECAY)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+scaler = torch.amp.GradScaler("cuda")
 model = model.to(device)
 model.train()
 for epoch in range(EPOCHS):
@@ -171,11 +198,13 @@ for epoch in range(EPOCHS):
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
         optimizer.zero_grad()
-        losses = model(images, targets)
-        loss = sum(losses.values())
-        sum_loss += loss
-        loss.backward()
-        optimizer.step()
+        with torch.autocast(device_type="cuda"):
+            losses = model(images, targets)
+            loss = sum(losses.values())
+        sum_loss += loss.item()
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
     print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {sum_loss:.4f}")
 
 model.eval()
@@ -183,15 +212,20 @@ best_boxes_per_image = []
 best_scores_per_image = []
 with torch.no_grad():
     for batch in tqdm(test_loader):
-        images, targets = batch
+        images, _ = batch
         images = [img.to(device) for img in images]
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
 
         predictions = model(images)
-        for p in predictions:
+        for image, p in zip(images, predictions):
             mask_good_scores = p["scores"] >= MIN_SCORE
-            best_boxes_per_image.append(p["boxes"][mask_good_scores])
-            best_scores_per_image.append(p["scores"][mask_good_scores])
+            best_boxes = p["boxes"][mask_good_scores].cpu().numpy()
+            best_scores = p["scores"][mask_good_scores].cpu().numpy()
+            best_boxes_per_image.append(best_boxes)
+            best_scores_per_image.append(best_scores)
+
+            image = image.cpu().permute(1, 2, 0).numpy()
+            cur_image_nr = len(best_boxes_per_image)
+            draw_bounding_boxes(cur_image_nr, image, best_boxes, best_scores)
 
 for i in range(len(best_boxes_per_image)):
     print(f"Image {i + 1}: \n "
