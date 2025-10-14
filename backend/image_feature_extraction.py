@@ -17,6 +17,17 @@ STRAIGHT_MAX_ANGLE = 160
 def __default_seed_point(w, h):
     return w // 2, int(h * 0.75)
 
+def is_asphalt_like(pixel_bgr):
+    """
+    Checks whether a pixel has typical road color-properties or not
+    :param pixel_bgr: the pixel to check
+    :return: is the pixel asphalt like
+    """
+    pixel = np.uint8([[pixel_bgr]])
+    hsv = cv2.cvtColor(pixel, cv2.COLOR_BGR2HSV)[0][0]
+    h, s, v = hsv
+    return s < 100 and 50 < v < 200
+
 def __trapeze_bottom_half(w, h):
     """
     Create a trapeze on the bottom half of the image to limit the region of interest.
@@ -198,6 +209,9 @@ def compute_driveable_area(img):
     """
     h, w = img.shape[:2]
     seed_point = __default_seed_point(w, h)
+    seed_point_pixel = img[seed_point[1]][seed_point[0]]
+    if not is_asphalt_like(seed_point_pixel):
+        return 0, 0
     mask = np.zeros((h + 2, w + 2), np.uint8)
 
     cv2.floodFill(img, mask, seed_point, (255, 255, 255), FLOOD_TOLERANCE, FLOOD_TOLERANCE, FLOOD_FLAGS)
@@ -225,12 +239,17 @@ def compute_lane_features(img):
     lanes = __compute_lanes(img)
     num_lanes = len(lanes)
     max_lane_length = max((math.dist((x1, y1), (x2, y2)) for x1, y1, x2, y2 in lanes), default=0)
+    trapeze_w = w
+    trapeze_h = h * 0.45
+    max_lane_length_norm = max_lane_length / math.hypot(trapeze_w, trapeze_h)
+
 
     right_lane, left_lane, vp = __compute_vanishing_point(lanes, w)
-    vp_found = vp is not None
-    vp_offset_x = vp[0] / w if vp_found else None
-    vp_offset_y = vp[1] / h if vp_found else None
+    vp_found = 1 if vp is not None else 0
+    vp_offset_x = (vp[0] / w - 0.5) * 2 if vp_found else None
+    vp_offset_y = (vp[1] / h - 0.5) * 2 if vp_found else None
     right_angle = __compute_angle_to_horizontal(*right_lane) if right_lane else None
     left_angle = __compute_angle_to_horizontal(*left_lane) if left_lane else None
 
-    return num_lanes, max_lane_length, right_angle, left_angle, vp_found, vp_offset_x, vp_offset_y
+    return num_lanes, max_lane_length_norm, right_angle, left_angle, vp_found, vp_offset_x, vp_offset_y
+
