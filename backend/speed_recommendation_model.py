@@ -1,59 +1,44 @@
-import json
+import os
+import cv2
 import pandas as pd
+import image_feature_extraction as ft_extr
 from tqdm import tqdm
 
-DATA_PATH = "data/bdd100k/bdd100k_labels_release/bdd100k/labels/bdd100k_labels_images_train.json"
+DATA_PATH = "data/bdd100k/bdd100k/bdd100k/images/10k/train"
 LABELS_PATH = "data/bdd100k/manual_speed_recommendation_labels.csv"
 
-def load_and_filter_training_data(path):
-    """
-    Loads data and extracts the two most important attributes: image names, lanes and driveable_areas
-    :param path: the path to the json file
-    :return: a pandas dataframe object containing image names, lanes and driveable areas
-    """
-    lanes_per_image = []
-    drivable_areas_per_image = []
-    image_names = []
-    with open(path, "r") as f:
-        data = json.load(f)
+def load_data_and_extract_features(path):
+    rows = []
+    img_paths = os.listdir(path)
+    for img_path in tqdm(img_paths):
+        img = cv2.imread(path + "/" + img_path)
 
-        for image_descr in data:
-            image_names.append(image_descr["name"])
-            lanes = []
-            drivable_areas = []
+        brightness, contrast = ft_extr.compute_brightness_and_contrast(img)
+        _, driveable_area = ft_extr.compute_driveable_area(img)
+        (num_lanes, max_lane_len,
+         angle_right, angle_left,
+         vp_found, vp_offset_x, vp_offset_y) = ft_extr.compute_lane_features(img)
 
-            for label in image_descr["labels"]:
-                if label["category"] == "lane":
-                    lanes.append({
-                        "direction":    label["attributes"]["laneDirection"],
-                        "style":        label["attributes"]["laneStyle"] ,
-                        "vertices":     label["poly2d"][0]["vertices"]
-                    })
+        rows.append({
+            "image": img_path,
+            "brightness": brightness,
+            "contrast": contrast,
+            "driveable_area": driveable_area,
+            "num_lanes": num_lanes,
+            "max_lane_len": max_lane_len,
+            "angle_right": angle_right,
+            "angle_left": angle_left,
+            "vp_found": vp_found,
+            "vp_offset_x": vp_offset_x,
+            "vp_offset_y": vp_offset_y
+        })
+    return pd.DataFrame(rows)
 
-                elif label["category"] == "drivable area":
-                    drivable_areas.append(label["poly2d"][0]["vertices"])
-
-            lanes_per_image.append(lanes)
-            drivable_areas_per_image.append(drivable_areas)
-
-    filtered_data = pd.DataFrame()
-    filtered_data["name"] = image_names
-    filtered_data["lane"] = lanes_per_image
-    filtered_data["drivable_area"] = drivable_areas_per_image
-    return filtered_data
-
-road_information_per_image = load_and_filter_training_data(DATA_PATH)
 
 labels = pd.read_csv(LABELS_PATH)
 labels = labels.drop(columns=["annotator", "lead_time", "updated_at", "created_at", "annotation_id", "id"])
 labels["image"] = [name[24:] for name in labels["image"]]
-annotated_road_information_per_image = road_information_per_image[road_information_per_image["name"].isin(labels["image"])]
 
-
-
-
-
-
-
-
+data = load_data_and_extract_features(DATA_PATH)
+print(data.shape)
 
