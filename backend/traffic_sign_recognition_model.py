@@ -174,3 +174,5 @@ with torch.no_grad():
 test_accuracy = 100.0 * num_correct / total
 print(f"Test Accuracy: {test_accuracy:.2f}%")
 
+torch.save(model, "models/sign_recognition_model.pt")
+
