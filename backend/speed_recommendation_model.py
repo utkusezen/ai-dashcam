@@ -1,9 +1,11 @@
 import os
+from math import floor
+
 import cv2
 import numpy as np
 import pandas as pd
 import torch
-from torch import nn
+from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader, random_split
 
 import image_feature_extraction as ft_extr
@@ -12,7 +14,10 @@ from tqdm import tqdm
 DATA_PATH = "data/bdd100k/bdd100k/bdd100k/images/10k/train"
 LABELS_PATH = "data/bdd100k/manual_speed_recommendation_labels.csv"
 
+EPOCHS = 30
 BATCH_SIZE = 64
+LEARNING_RATE = 1e-4
+WEIGHT_DECAY = 1e-5
 
 def load_data_and_extract_features(path):
     """
@@ -70,6 +75,7 @@ labels = labels.drop(columns=["annotator", "lead_time", "updated_at", "created_a
 labels["image"] = [name[24:] for name in labels["image"]]
 labels.sort_values("image", inplace=True)
 y = labels["choice"].apply(range_to_discrete_value).to_numpy()
+y = y.reshape(-1, 1)
 
 data = load_data_and_extract_features(DATA_PATH)
 data.sort_values("image", inplace=True)
@@ -92,21 +98,119 @@ class SpeedRecommendationDataset(Dataset):
         features = self.features[idx]
         label = self.labels[idx]
 
+        if isinstance(features, np.ndarray):
+            features = torch.tensor(features, dtype=torch.float32)
+        if isinstance(label, (np.ndarray, float, int)):
+            label = torch.tensor(label, dtype=torch.float32)
+
         if self.transform:
             features = self.transform(features)
 
         return features, label
 
+class SpeedRecommendationModel(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.flatten = nn.Flatten()
+        self.linear_relu_stack = nn.Sequential(
+            nn.Linear(10, 64),
+            nn.ReLU(),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Linear(32, 16),
+            nn.ReLU(),
+            nn.Linear(16, 1),
+        )
+
+    def forward(self, x):
+        x = self.flatten(x)
+        logits = self.linear_relu_stack(x)
+        return logits
+
 dataset = SpeedRecommendationDataset(features=X, labels=y)
+dummy_set = SpeedRecommendationDataset(features=np.zeros((1000, 10), dtype=float), labels=np.ones((1000, 1), dtype=float))
 train_set, test_set = random_split(dataset, [0.8, 0.2])
 
 train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=True)
+dummy_loader = DataLoader(dummy_set, batch_size=BATCH_SIZE, shuffle=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+model = SpeedRecommendationModel().to(device)
+loss_fn = nn.MSELoss()
+optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
+model.train()
+for epoch in range(EPOCHS):
+    sum_loss = 0.0
+    sum_deviance = 0.0
+    num_major_deviance = 0.0
+    num_overshot = 0.0
+    num_undershot = 0.0
+    num_correct = 0.0
+    for batch in tqdm(train_loader):
+        X, y = batch
+        X = X.to(device)
+        y = y.to(device)
 
+        optimizer.zero_grad()
+        output = model(X)
+        loss = loss_fn(output, y)
+        loss.backward()
+        optimizer.step()
 
+        sum_loss += loss.item()
+        for pred, truth in zip(output, y):
+            pred = pred.item()
+            truth = truth.item()
+            deviance = abs(pred - truth)
+            num_major_deviance += 1 if deviance > 10 else 0
+            num_overshot += 1 if floor(pred) > truth else 0
+            num_undershot += 1 if floor(pred) < truth else 0
+            num_correct += 1 if floor(pred) == truth else 0
+            sum_deviance += deviance
+
+    avg_loss = sum_loss / (len(train_loader) * BATCH_SIZE)
+    avg_deviance = sum_deviance / (len(train_loader) * BATCH_SIZE)
+    print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {avg_loss}")
+    print(f"Average deviance: {avg_deviance}")
+    print(f"Number of major errors: {num_major_deviance}")
+    print(f"Number of times overshot: {num_overshot}")
+    print(f"Number of times undershot: {num_undershot}")
+    print(f"Number of times correct: {num_correct}")
+print("Model Training finished.")
+
+model.eval()
+sum_deviance = 0.0
+num_major_deviance = 0.0
+num_overshot = 0.0
+num_undershot = 0.0
+num_correct = 0.0
+with torch.no_grad():
+    for batch in tqdm(test_loader):
+        X = X.to(device)
+        y = y.to(device)
+
+        output = model(X)
+
+        for pred, truth in zip(output, y):
+            pred = pred.item()
+            truth = truth.item()
+            deviance = abs(pred - truth)
+            num_major_deviance += 1 if deviance > 10 else 0
+            num_overshot += 1 if floor(pred) > truth else 0
+            num_undershot += 1 if floor(pred) < truth else 0
+            num_correct += 1 if floor(pred) == truth else 0
+            sum_deviance += deviance
+
+avg_deviance = sum_deviance / (len(test_loader) * BATCH_SIZE)
+print(f"Total Test Data: {len(test_set)}")
+print(f"Average deviance: {avg_deviance:.2f}")
+print(f"Number of major errors: {num_major_deviance}")
+print(f"Number of times overshot: {num_overshot}")
+print(f"Number of times undershot: {num_undershot}")
+print(f"Number of times correct: {num_correct}")
+print("Model Evaluation finished.")
 
 
 
