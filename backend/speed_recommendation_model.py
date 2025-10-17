@@ -213,4 +213,4 @@ print(f"Number of times correct: {num_correct}")
 print("Model Evaluation finished.")
 
 
-
+torch.save(model, "models/speed_recommendation_model.pt")
