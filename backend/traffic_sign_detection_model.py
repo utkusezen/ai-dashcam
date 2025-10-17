@@ -232,3 +232,5 @@ for i in range(len(best_boxes_per_image)):
           f"Signs found: {len(best_boxes_per_image[i])} \n "
           f"Bounding Boxes: {best_boxes_per_image[i].tolist()} \n "
           f"Scores: {best_scores_per_image[i].tolist()}")
+
+torch.save(model, "models/sign_detection_model.pt")
