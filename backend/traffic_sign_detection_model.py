@@ -1,27 +1,40 @@
 import os
-from pathlib import Path
+import random
+from unittest.mock import DEFAULT
+
+import cv2
+import numpy as np
 import torch
 import torchvision.models.detection
-from PIL import Image
-from matplotlib import patches, pyplot as plt
 from torch import optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
 from torchvision.models.detection import FasterRCNN_MobileNet_V3_Large_320_FPN_Weights
+from torchvision.models.detection import FasterRCNN_ResNet50_FPN_Weights
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 from tqdm import tqdm
 
 TRAIN_DATA_PATH = "data/GTSDB_TT100k/Train"
 TEST_DATA_PATH = "data/GTSDB_TT100k/Test"
-SAVE_RESULT_PATH = "results/detection/"
-MAX_IMG_SIZE = 512
+OUTPUT_PATH = "output/detection/"
+METRICS_PATH = "metrics/detection_metrics"
+MAX_IMG_SIZE = 1024
 EPOCHS = 10
-LEARNING_RATE = 1e-3
+LEARNING_RATE = 5e-4
 MOMENTUM = 0.9
-WEIGHT_DECAY = 0.0005
+WEIGHT_DECAY = 5e-4
 BATCH_SIZE = 4
-MIN_SCORE = 0.9
-Path(SAVE_RESULT_PATH).mkdir(parents=True, exist_ok=True)
+MIN_SCORE = 0.6
+
+
+def clear_output_folder():
+    """
+    Clears the output folder
+    :return: None
+    """
+    for file in os.listdir(OUTPUT_PATH):
+        os.remove(os.path.join(OUTPUT_PATH, file))
+
 
 def collect_sign_detection_path_data(directory):
     """
@@ -35,7 +48,7 @@ def collect_sign_detection_path_data(directory):
 
     path_data_images = []
     path_data_labels = []
-    for image_path in tqdm(os.listdir(images_path)):
+    for image_path in tqdm(os.listdir(images_path), desc="Collecting image and label paths", ):
         path_data_images.append(os.path.join(images_path, image_path))
         label_path = os.path.join(labels_path, image_path.split(".")[0] + ".txt")
         if os.path.exists(label_path):
@@ -45,6 +58,51 @@ def collect_sign_detection_path_data(directory):
 
     return path_data_images, path_data_labels
 
+
+def filter_empties(img_paths, label_paths, percentage=0.05, seed=123):
+    """
+    Filters out images with no labels according to given percentage.
+    :param img_paths: image paths
+    :param label_paths: label paths (None if empty)
+    :param percentage: the desired percentage of images with no labels
+    :param seed: seed for random filtering
+    :return: img_paths, label_paths
+    """
+    empty = []
+    not_empty = []
+
+    for img_paths, label_paths in zip(img_paths, label_paths):
+        if label_paths is None:
+            empty.append((img_paths, label_paths))
+        else:
+            not_empty.append((img_paths, label_paths))
+
+    random.seed(seed)
+    filtered = random.sample(empty, round(len(empty) * percentage))
+    filtered.extend(not_empty)
+    random.shuffle(filtered)
+    images, labels = zip(*filtered)
+    return list(images), list(labels)
+
+
+def filter_small_signs(boxes, min_size=24*24):
+    """
+    Remove very small signs, that may impair model training. Filters out signs with an image area less than min_size.
+    :param boxes: x1, y1, x2, y2
+    :param min_size: the minimum size of a sign on an image
+    :return: filtered bounding boxes
+    """
+    new_boxes = []
+    for box in boxes:
+        x1, y1, x2, y2 = box
+        w = abs(x2 - x1)
+        h = abs(y2 - y1)
+        if w * h >= min_size:
+            new_boxes.append(box)
+
+    return new_boxes
+
+
 def load_image_and_label_data(image_path, label_path):
     """
     Loads image and label data from given path and label data from given path.
@@ -53,7 +111,8 @@ def load_image_and_label_data(image_path, label_path):
     :param label_path: The path to the label
     :return: image data and label data
     """
-    image = Image.open(image_path).convert("RGB").copy()
+    image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     labels = []
 
     if label_path:
@@ -64,16 +123,20 @@ def load_image_and_label_data(image_path, label_path):
                 labels.append(label)
     return image, labels
 
-def convert_bounding_box_to_coordinates(bounding_box):
+
+def convert_bounding_box_to_coordinates(bounding_box, image_shape):
     """
-    Converts bounding box coordinates (x, y, w, h) to two x, y coordinates.
+    Converts bounding box coordinates (x, y, w, h) to coordinate-form and scales them to the size of the image.
     :param bounding_box: list of attributes of the bounding box, assumed to be of form (x, y, w, h)
-    :return: a list of x, y coordinates of form (x1, y1, x2, y2)
+    :param image_shape: shape of the image
+    :return: coordinates of form (x1, y1, x2, y2)
     """
     x, y, w, h = bounding_box
+    image_h, image_w, _ = image_shape
     x1, y1 = x - w / 2, y - h / 2
     x2, y2 = x + w / 2, y + h / 2
-    return x1, y1, x2, y2
+    return x1 * image_w, y1 * image_h, x2 * image_w, y2 * image_h
+
 
 def resize_image_and_bounding_boxes(max_size, image, boxes):
     """
@@ -84,23 +147,21 @@ def resize_image_and_bounding_boxes(max_size, image, boxes):
     :param boxes: The list of bounding box points to resize, assumed to be of form (x1, y1, x2, y2)
     :return: The resized image and points
     """
-    cur_width, cur_height = image.size
+    cur_height, cur_width, _ = image.shape
 
     if cur_width >= cur_height:
-        new_width = max_size
-        new_height = int(max_size * cur_height / cur_width)
+        scale = max_size / cur_width
     else:
-        new_height = max_size
-        new_width = int(max_size * cur_width / cur_height)
+        scale = max_size / cur_height
 
-    scale_x = new_width / cur_width
-    scale_y = new_height / cur_height
-
-    resized_image = image.resize((new_width, new_height))
-    new_boxes = [[x1 * cur_width * scale_x, y1 * cur_height * scale_y,
-                  x2 * cur_width * scale_x, y2 * cur_height * scale_y] for x1, y1, x2, y2 in boxes]
+    new_width = int(cur_width * scale)
+    new_height = int(cur_height * scale)
+    resized_image = cv2.resize(image, (new_width, new_height))
+    new_boxes = [[x1 * scale, y1 * scale,
+                  x2 * scale, y2 * scale] for x1, y1, x2, y2 in boxes]
 
     return resized_image, new_boxes
+
 
 def custom_collate_fn(batch):
     """
@@ -110,25 +171,52 @@ def custom_collate_fn(batch):
     """
     return tuple(zip(*batch))
 
-def draw_bounding_boxes(name, image, boxes, scores):
+
+def draw_bounding_boxes(image, pred_boxes, scores, true_boxes):
     """
     Draws predicted bounding boxes on an image with corresponding scores.
-    Saves images as .jpg in "results/detection/"
-    :param name: name of the file that the image is saved as
+    Saves images as .jpg in "output/detection/"
     :param image: image to draw bounding boxes on
-    :param boxes: the predicted bounding boxes
+    :param pred_boxes: the predicted bounding boxes
     :param scores: the predicted scores
+    :param true_boxes: the true bounding boxes of the dataset
     :return: None
     """
-    fig, ax = plt.subplots()
-    ax.imshow(image)
-    for (x1, y1, x2, y2), score in zip(boxes, scores):
-        rectangle = patches.Rectangle((x1, y1), x2 - x1, y2 - y1, fill=False, color="g", linewidth=2)
-        ax.add_patch(rectangle)
-        ax.text(x1, y1, f"{score:.2f}", color="white",
-                fontsize=8, bbox=dict(facecolor="red", alpha=0.5))
-    plt.savefig(SAVE_RESULT_PATH + f"{name}.jpg")
-    plt.close(fig)
+
+    if len(pred_boxes) == 0 and len(true_boxes) == 0:
+        return
+
+    file_path = os.path.join(OUTPUT_PATH, f"{len(os.listdir(OUTPUT_PATH))}.jpg")
+    num_signs_found = len(pred_boxes)
+    num_signs = len(true_boxes)
+    img = image.copy()
+    img = np.clip(img * 255, 0, 255).astype(np.uint8)
+    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+    h, w, _ = img.shape
+    font = cv2.FONT_HERSHEY_SIMPLEX
+
+    for (x1, y1, x2, y2) in true_boxes:
+        cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 255), 2)
+
+    for (x1, y1, x2, y2), score in zip(pred_boxes, scores):
+        cv2.rectangle(img, (int(x1), int(y1)), (int(x2), int(y2)), (0, 255, 0), 2)
+        cv2.putText(img, f"{score:.2f}", (int(x1), int(y1) - 5),
+                    font, 1, (0, 255, 0), 2, cv2.LINE_AA)
+
+    sidebar_width = 350
+    sidebar = np.full((h, sidebar_width, 3), fill_value=255, dtype=np.uint8)
+    x_text, y_text = 10, 100
+    cv2.putText(sidebar, f"{num_signs_found} / {num_signs} signs found", (x_text, y_text),
+                font, 1, (0, 0, 0), 3, cv2.LINE_AA)
+    y_text += 100
+    cv2.putText(sidebar, "Green: Prediction", (x_text, y_text),
+                font, 1, (0, 200, 0), 3, cv2.LINE_AA)
+    y_text += 100
+    cv2.putText(sidebar, "Yellow: Ground Truth", (x_text, y_text),
+                font, 1, (0, 200, 200), 3, cv2.LINE_AA)
+
+    combined = np.concatenate((img, sidebar), axis=1)
+    cv2.imwrite(file_path, combined)
 
 
 class TrafficSignDataset(Dataset):
@@ -136,6 +224,7 @@ class TrafficSignDataset(Dataset):
     A PyTorch Dataset class to simplify access and transformations on the data.
     Uses paths to save memory and only loads data on access.
     """
+
     def __init__(self, image_paths, label_paths, max_size, transform=None):
         self.image_paths = image_paths
         self.label_paths = label_paths
@@ -150,15 +239,15 @@ class TrafficSignDataset(Dataset):
         label_path = self.label_paths[idx]
 
         image, labels = load_image_and_label_data(image_path, label_path)
+        boxes = [l[1:] for l in labels]
+        boxes = [convert_bounding_box_to_coordinates(box, image.shape) for box in boxes]
+        image, boxes = resize_image_and_bounding_boxes(self.max_size, image, boxes)
+        boxes = filter_small_signs(boxes)
 
-        if labels:
-            boxes = [l[1:] for l in labels]
-            boxes = list(map(convert_bounding_box_to_coordinates, boxes))
-            image, boxes = resize_image_and_bounding_boxes(self.max_size, image, boxes)
+        if boxes:
             boxes = torch.tensor(boxes, dtype=torch.float)
             class_ids = torch.full((len(labels),), 1, dtype=torch.int64)
         else:
-            image, _ = resize_image_and_bounding_boxes(self.max_size, image, [])
             boxes = torch.zeros((0, 4), dtype=torch.float)
             class_ids = torch.zeros((0,), dtype=torch.int64)
 
@@ -169,9 +258,13 @@ class TrafficSignDataset(Dataset):
 
         return image, target
 
+os.makedirs(OUTPUT_PATH, exist_ok=True)
+clear_output_folder()
 
 train_x, train_y = collect_sign_detection_path_data(TRAIN_DATA_PATH)
 test_x, test_y = collect_sign_detection_path_data(TEST_DATA_PATH)
+train_x, train_y = filter_empties(train_x, train_y)
+test_x, test_y = filter_empties(test_x, test_y)
 
 transform = transforms.Compose([transforms.ToTensor()])
 
@@ -181,7 +274,33 @@ test_dataset = TrafficSignDataset(test_x, test_y, MAX_IMG_SIZE, transform)
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=custom_collate_fn, pin_memory=True)
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=custom_collate_fn, pin_memory=True)
 
-model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_320_fpn(weights=FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT)
+"""
+for images, targets in tqdm(test_loader):
+    for image, target in zip(images, targets):
+        im = image.permute(1, 2, 0).numpy()
+        draw_bounding_boxes(im, [], [], target["boxes"])
+
+
+counts = []
+for _, targets in tqdm(test_loader):
+    for t in targets:
+        counts.append(len(t["boxes"]))
+
+# ZÃ¤hlen, wie oft jede Anzahl vorkommt
+count_dict = Counter(counts)
+print(count_dict)
+
+# Plotten
+plt.bar(count_dict.keys(), count_dict.values())
+plt.xlabel("Anzahl Schilder pro Bild")
+plt.ylabel("Anzahl Bilder")
+plt.title("Verteilung der Verkehrsschilder im Datensatz")
+plt.show()
+"""
+
+
+#model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_320_fpn(weights=FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT)
+model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=FasterRCNN_ResNet50_FPN_Weights.COCO_V1)
 in_features = model.roi_heads.box_predictor.cls_score.in_features
 model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 2)
 
@@ -192,7 +311,8 @@ model = model.to(device)
 model.train()
 for epoch in range(EPOCHS):
     sum_loss = 0.0
-    for batch in tqdm(train_loader):
+
+    for batch in tqdm(train_loader, desc=f"Training Epoch {epoch + 1}", colour="blue"):
         images, targets = batch
         images = [img.to(device) for img in images]
         targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
@@ -201,36 +321,35 @@ for epoch in range(EPOCHS):
         with torch.autocast(device_type="cuda"):
             losses = model(images, targets)
             loss = sum(losses.values())
-        sum_loss += loss.item()
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
-    print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {sum_loss:.4f}")
+
+        sum_loss += loss.item()
+    avg_loss = sum_loss / (len(train_loader) * BATCH_SIZE)
+    print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {avg_loss:.4f}")
 
 model.eval()
-best_boxes_per_image = []
-best_scores_per_image = []
+found_signs = 0
+total_signs = 0
 with torch.no_grad():
-    for batch in tqdm(test_loader):
-        images, _ = batch
+    for batch in tqdm(test_loader, desc=f"Evaluating Model", colour="green"):
+        images, targets = batch
         images = [img.to(device) for img in images]
 
         predictions = model(images)
-        for image, p in zip(images, predictions):
-            mask_good_scores = p["scores"] >= MIN_SCORE
-            best_boxes = p["boxes"][mask_good_scores].cpu().numpy()
-            best_scores = p["scores"][mask_good_scores].cpu().numpy()
-            best_boxes_per_image.append(best_boxes)
-            best_scores_per_image.append(best_scores)
+
+        for image, p, target in zip(images, predictions, targets):
+            mask_good_predictions = p["scores"] >= MIN_SCORE
+            best_boxes = p["boxes"][mask_good_predictions].cpu().numpy()
+            best_scores = p["scores"][mask_good_predictions].cpu().numpy()
+            true_boxes = target["boxes"]
 
             image = image.cpu().permute(1, 2, 0).numpy()
-            cur_image_nr = len(best_boxes_per_image)
-            draw_bounding_boxes(cur_image_nr, image, best_boxes, best_scores)
+            draw_bounding_boxes(image, best_boxes, best_scores, true_boxes)
+            found_signs += len(best_boxes)
+            total_signs += len(true_boxes)
 
-for i in range(len(best_boxes_per_image)):
-    print(f"Image {i + 1}: \n "
-          f"Signs found: {len(best_boxes_per_image[i])} \n "
-          f"Bounding Boxes: {best_boxes_per_image[i].tolist()} \n "
-          f"Scores: {best_scores_per_image[i].tolist()}")
 
+print(f"Signs Detected: {found_signs} / {total_signs} signs found.")
 torch.save(model, "models/sign_detection_model.pt")
