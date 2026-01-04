@@ -14,10 +14,11 @@ from tqdm import tqdm
 
 DATA_PATH = "data/bdd100k/bdd100k/bdd100k/images/10k/train"
 LABELS_PATH = "data/bdd100k/manual_speed_recommendation_labels.csv"
+METRICS_PATH = "metrics/speed_recommendation_metrics.csv"
 
 EPOCHS = 100
 BATCH_SIZE = 64
-LEARNING_RATE = 5e-5
+LEARNING_RATE = 1e-4
 WEIGHT_DECAY = 5e-5
 
 def load_data_and_extract_features(path):
@@ -218,5 +219,12 @@ print(f"Overshot Rate: {overshot_rate:.2f}")
 print(f"Undershot Rate: {undershot_rate:.2f}")
 print(f"Major Error Rate: {major_error_rate:.2f}")
 print("Model Evaluation finished.")
+
+metrics = pd.DataFrame(data={"Accuracy": [accuracy], "Adjacent Accuracy": [adjacent_accuracy + accuracy],
+                             "Average deviance": [avg_deviance], "Overshot Rate": [overshot_rate],
+                             "Undershot Rate": [undershot_rate], "Major Error Rate": [major_error_rate]},
+                       columns=["Accuracy", "Adjacent Accuracy", "Average deviance",
+                                "Overshot Rate", "Undershot Rate", "Major Error Rate"])
+metrics.to_csv(METRICS_PATH, mode='a', header=not os.path.exists(METRICS_PATH), index=False)
 
 torch.save(model, "models/speed_recommendation_model.pt")
