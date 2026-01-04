@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 import pandas as pd
 import torch
+from matplotlib import pyplot as plt
 from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader, random_split
 
@@ -14,10 +15,10 @@ from tqdm import tqdm
 DATA_PATH = "data/bdd100k/bdd100k/bdd100k/images/10k/train"
 LABELS_PATH = "data/bdd100k/manual_speed_recommendation_labels.csv"
 
-EPOCHS = 30
+EPOCHS = 100
 BATCH_SIZE = 64
-LEARNING_RATE = 1e-4
-WEIGHT_DECAY = 1e-5
+LEARNING_RATE = 5e-5
+WEIGHT_DECAY = 5e-5
 
 def load_data_and_extract_features(path):
     """
@@ -74,12 +75,19 @@ labels = pd.read_csv(LABELS_PATH)
 labels = labels.drop(columns=["annotator", "lead_time", "updated_at", "created_at", "annotation_id", "id"])
 labels["image"] = [name[24:] for name in labels["image"]]
 labels.sort_values("image", inplace=True)
-y = labels["choice"].apply(range_to_discrete_value).to_numpy()
-y = y.reshape(-1, 1)
+y = labels["choice"].apply(range_to_discrete_value)
 
 data = load_data_and_extract_features(DATA_PATH)
 data.sort_values("image", inplace=True)
 data.drop(columns=["image"], inplace=True)
+
+data["speed"] = y
+y_high = data[data["speed"] >= 60]
+y_low = data[data["speed"] < 60]
+upsampled = y_high.sample(replace=True, n=len(y_low)//2, random_state=42)
+data = pd.concat([y_low, upsampled])
+y = data["speed"].to_numpy().reshape(-1, 1)
+data.drop(columns=["speed"], inplace=True)
 X = data.to_numpy()
 
 class SpeedRecommendationDataset(Dataset):
@@ -140,14 +148,15 @@ model = SpeedRecommendationModel().to(device)
 loss_fn = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
+#pd.Series(y.flatten()).hist(bins=20)
+#plt.xlabel("Geschwindigkeit (Label)")
+#plt.ylabel("Anzahl Samples")
+#plt.title("Verteilung der Geschwindigkeits-Labels")
+#plt.show()
+
 model.train()
 for epoch in range(EPOCHS):
     sum_loss = 0.0
-    sum_deviance = 0.0
-    num_major_deviance = 0.0
-    num_overshot = 0.0
-    num_undershot = 0.0
-    num_correct = 0.0
     for batch in tqdm(train_loader):
         X, y = batch
         X = X.to(device)
@@ -160,29 +169,15 @@ for epoch in range(EPOCHS):
         optimizer.step()
 
         sum_loss += loss.item()
-        for pred, truth in zip(output, y):
-            pred = pred.item()
-            truth = truth.item()
-            deviance = abs(pred - truth)
-            num_major_deviance += 1 if deviance > 10 else 0
-            num_overshot += 1 if floor(pred) > truth else 0
-            num_undershot += 1 if floor(pred) < truth else 0
-            num_correct += 1 if floor(pred) == truth else 0
-            sum_deviance += deviance
 
     avg_loss = sum_loss / (len(train_loader) * BATCH_SIZE)
-    avg_deviance = sum_deviance / (len(train_loader) * BATCH_SIZE)
     print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {avg_loss}")
-    print(f"Average deviance: {avg_deviance}")
-    print(f"Number of major errors: {num_major_deviance}")
-    print(f"Number of times overshot: {num_overshot}")
-    print(f"Number of times undershot: {num_undershot}")
-    print(f"Number of times correct: {num_correct}")
 print("Model Training finished.")
 
 model.eval()
 sum_deviance = 0.0
-num_major_deviance = 0.0
+num_major_error = 0.0
+num_adjacent = 0.0
 num_overshot = 0.0
 num_undershot = 0.0
 num_correct = 0.0
@@ -197,20 +192,31 @@ with torch.no_grad():
             pred = pred.item()
             truth = truth.item()
             deviance = abs(pred - truth)
-            num_major_deviance += 1 if deviance > 10 else 0
-            num_overshot += 1 if floor(pred) > truth else 0
-            num_undershot += 1 if floor(pred) < truth else 0
-            num_correct += 1 if floor(pred) == truth else 0
+            bucket_pred = (pred // 10) * 10
+            bucket_deviance = abs(bucket_pred - truth)
+            num_overshot += 1 if bucket_pred > truth else 0
+            num_undershot += 1 if bucket_pred < truth else 0
+            num_correct += 1 if bucket_pred == truth else 0
             sum_deviance += deviance
+            if bucket_deviance > 10:
+                num_major_error += 1
+            else:
+                num_adjacent += 1
+
 
 avg_deviance = sum_deviance / (len(test_loader) * BATCH_SIZE)
-print(f"Total Test Data: {len(test_set)}")
-print(f"Average deviance: {avg_deviance:.2f}")
-print(f"Number of major errors: {num_major_deviance}")
-print(f"Number of times overshot: {num_overshot}")
-print(f"Number of times undershot: {num_undershot}")
-print(f"Number of times correct: {num_correct}")
-print("Model Evaluation finished.")
+overshot_rate = num_overshot / len(test_set)
+undershot_rate = num_undershot / len(test_set)
+major_error_rate = num_major_error / len(test_set)
+accuracy = num_correct / len(test_set)
+adjacent_accuracy = num_adjacent / len(test_set)
 
+print(f"Average deviance: {avg_deviance:.2f}")
+print(f"Accuracy: {accuracy:.2f}")
+print(f"Adjacent Accuracy: {(adjacent_accuracy + accuracy):.2f}")
+print(f"Overshot Rate: {overshot_rate:.2f}")
+print(f"Undershot Rate: {undershot_rate:.2f}")
+print(f"Major Error Rate: {major_error_rate:.2f}")
+print("Model Evaluation finished.")
 
 torch.save(model, "models/speed_recommendation_model.pt")
