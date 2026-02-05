@@ -11,6 +11,8 @@ from torchvision import transforms
 from PIL import Image
 from tqdm import tqdm
 
+from classes.sign_classification_nn import TrafficSignCNN
+
 IMG_SIZE = (64, 64)
 EPOCHS = 10
 LEARNING_RATE = 1e-3
@@ -103,35 +105,6 @@ train_dataset = TrafficSignDataset(train_x, train_y, transform=transform)
 test_dataset = TrafficSignDataset(test_x, test_y, transform=transform)
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True)
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=False)
-
-class TrafficSignCNN(nn.Module):
-    """
-    A Neural Network class that uses convolutional feature extractors and fully connected classifier layers
-    for traffic sign recognition
-    """
-    def __init__(self, num_classes):
-        super(TrafficSignCNN, self).__init__()
-        self.feature_extractor_layers = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2, 2),
-        )
-        self.classifier_layers = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(64 * 16 * 16, 128),
-            nn.ReLU(),
-            nn.Linear(128, num_classes)
-        )
-
-    def forward(self, x):
-        x = self.feature_extractor_layers(x)
-        x = self.classifier_layers(x)
-        return x
-
-
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = TrafficSignCNN(num_classes).to(device)

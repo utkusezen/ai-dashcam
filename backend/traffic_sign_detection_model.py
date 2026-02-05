@@ -106,7 +106,6 @@ def filter_small_signs(boxes, min_size=24*24):
 def load_image_and_label_data(image_path, label_path):
     """
     Loads image and label data from given path and label data from given path.
-    Images that do not have labels are assigned an empty label.
     :param image_path: The path to the image
     :param label_path: The path to the label
     :return: image data and label data

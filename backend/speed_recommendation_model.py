@@ -1,6 +1,4 @@
 import os
-from math import floor
-
 import cv2
 import numpy as np
 import pandas as pd
@@ -8,9 +6,11 @@ import torch
 from matplotlib import pyplot as plt
 from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader, random_split
+from tqdm import tqdm
+from math import floor
 
 import image_feature_extraction as ft_extr
-from tqdm import tqdm
+from classes.speed_recommendation_nn import SpeedRecommendationModel
 
 DATA_PATH = "data/bdd100k/bdd100k/bdd100k/images/10k/train"
 LABELS_PATH = "data/bdd100k/manual_speed_recommendation_labels.csv"
@@ -117,24 +117,6 @@ class SpeedRecommendationDataset(Dataset):
 
         return features, label
 
-class SpeedRecommendationModel(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.flatten = nn.Flatten()
-        self.linear_relu_stack = nn.Sequential(
-            nn.Linear(10, 64),
-            nn.ReLU(),
-            nn.Linear(64, 32),
-            nn.ReLU(),
-            nn.Linear(32, 16),
-            nn.ReLU(),
-            nn.Linear(16, 1),
-        )
-
-    def forward(self, x):
-        x = self.flatten(x)
-        logits = self.linear_relu_stack(x)
-        return logits
 
 dataset = SpeedRecommendationDataset(features=X, labels=y)
 dummy_set = SpeedRecommendationDataset(features=np.zeros((1000, 10), dtype=float), labels=np.ones((1000, 1), dtype=float))
