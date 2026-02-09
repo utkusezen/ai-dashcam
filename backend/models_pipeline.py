@@ -50,16 +50,17 @@ def run(image: Image.Image) -> dict:
         "recommended_speed": None
     }
 
-    image_np = np.array(image)
-    image_np = cv2.cvtColor(image_np, cv2.COLOR_RGB2BGR)
-    resized_np, scale = resize_image_keep_ratio(MAX_IMG_SIZE, image_np)
+    image_np_rgb = np.array(image)
+    image_np_bgr = cv2.cvtColor(image_np_rgb, cv2.COLOR_RGB2BGR)
+    resized_np_bgr, scale = resize_image_keep_ratio(MAX_IMG_SIZE, image_np_bgr)
+    resized_np_rgb = cv2.cvtColor(resized_np_bgr, cv2.COLOR_BGR2RGB)
 
-    tensor_input = transforms.ToTensor()(resized_np).unsqueeze(0)
+    tensor_input = transforms.ToTensor()(resized_np_rgb).unsqueeze(0)
     detections = detection_model(tensor_input)[0]
 
     boxes = detections["boxes"]
     scores = detections["scores"]
-    draw_bounding_boxes(resized_np, boxes.cpu().numpy(), scores.cpu().numpy())
+    draw_bounding_boxes(resized_np_bgr, boxes.cpu().numpy(), scores.cpu().numpy())
 
 
     for box, score in zip(boxes, scores):
@@ -85,12 +86,12 @@ def run(image: Image.Image) -> dict:
 
         results["signs"].append(sign_class)
 
-    brightness, contrast = feature_extraction.compute_brightness_and_contrast(image_np)
-    _, driveable_area = feature_extraction.compute_driveable_area(image_np)
+    brightness, contrast = feature_extraction.compute_brightness_and_contrast(image_np_rgb)
+    _, driveable_area = feature_extraction.compute_driveable_area(image_np_rgb)
 
     (num_lanes, max_lane_len,
      angle_right, angle_left,
-     vp_found, vp_offset_x, vp_offset_y) = feature_extraction.compute_lane_features(image_np)
+     vp_found, vp_offset_x, vp_offset_y) = feature_extraction.compute_lane_features(image_np_rgb)
 
     num_lanes_norm = np.clip(num_lanes, 0, 6) / 6
     angle_right_norm = angle_right / 90 if angle_right is not None else 0

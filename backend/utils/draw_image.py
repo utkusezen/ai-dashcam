@@ -1,9 +1,7 @@
 import os
-
 import cv2
-import numpy as np
 
-OUTPUT_PATH = "../output/live/detection"
+OUTPUT_PATH = "output/live/detection"
 
 def draw_bounding_boxes(image, boxes, scores):
     """
@@ -17,7 +15,6 @@ def draw_bounding_boxes(image, boxes, scores):
 
     file_path = os.path.join(OUTPUT_PATH, f"{len(os.listdir(OUTPUT_PATH))}.jpg")
     img = image.copy()
-    img = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
     h, w, _ = img.shape
     font = cv2.FONT_HERSHEY_SIMPLEX
 
