@@ -21,14 +21,18 @@ BOX_PADDING = 5
 detection_model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=FasterRCNN_ResNet50_FPN_Weights.COCO_V1)
 in_features = detection_model.roi_heads.box_predictor.cls_score.in_features
 detection_model.roi_heads.box_predictor = FastRCNNPredictor(in_features, 2)
-detection_model.load_state_dict(torch.load("models/sign_detection_state_dict.pt", map_location="cpu"))
+detection_model.load_state_dict(
+    torch.load("models/sign_detection_state_dict.pt", map_location="cpu", weights_only=True)
+)
 detection_model.to("cpu")
 detection_model.eval()
 
 
 
 classification_model = TrafficSignCNN(num_classes=CLASSIFICATION_NUM_CLASSES)
-classification_model.load_state_dict(torch.load("models/sign_recognition_state_dict.pt", map_location="cpu"))
+classification_model.load_state_dict(
+    torch.load("models/sign_recognition_state_dict.pt", map_location="cpu", weights_only=True)
+)
 classification_transform = transforms.Compose([
     transforms.Resize((64, 64)),
     transforms.ToTensor(),
@@ -39,7 +43,9 @@ classification_model.eval()
 
 
 speed_model = SpeedRecommendationModel()
-speed_model.load_state_dict(torch.load("models/speed_recommendation_state_dict.pt", map_location="cpu"))
+speed_model.load_state_dict(
+    torch.load("models/speed_recommendation_state_dict.pt", map_location="cpu", weights_only=True)
+)
 speed_model.to("cpu")
 speed_model.eval()
 

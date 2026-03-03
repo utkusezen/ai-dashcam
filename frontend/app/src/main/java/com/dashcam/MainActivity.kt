@@ -317,7 +317,7 @@ class MainActivity : ComponentActivity() {
             .build()
 
         val request = Request.Builder()
-            .url("$apiBaseUrl/analyze")
+            .url("http://$apiBaseUrl:5000/analyze")
             .post(multipartBody)
             .build()
 
