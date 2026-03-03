@@ -222,15 +222,12 @@ class MainActivity : ComponentActivity() {
 
         val yRowStride = yPlane.rowStride
         val yPixelStride = yPlane.pixelStride
-
         val uRowStride = uPlane.rowStride
         val uPixelStride = uPlane.pixelStride
-
         val vRowStride = vPlane.rowStride
         val vPixelStride = vPlane.pixelStride
 
         val nv21 = ByteArray(width * height * 3 / 2)
-
 
         var pos = 0
         for (row in 0 until height) {
@@ -264,14 +261,49 @@ class MainActivity : ComponentActivity() {
             null
         )
 
-        val out = ByteArrayOutputStream()
+        val jpegOut = ByteArrayOutputStream()
         yuvImage.compressToJpeg(
             Rect(0, 0, width, height),
             90,
-            out
+            jpegOut
         )
 
-        return out.toByteArray()
+        val jpegBytes = jpegOut.toByteArray()
+
+        val rotationDegrees = image.imageInfo.rotationDegrees
+        if (rotationDegrees == 0) {
+            return jpegBytes
+        }
+
+        val originalBitmap =
+            android.graphics.BitmapFactory.decodeByteArray(
+                jpegBytes,
+                0,
+                jpegBytes.size
+            )
+
+        val matrix = android.graphics.Matrix().apply {
+            postRotate(rotationDegrees.toFloat())
+        }
+
+        val rotatedBitmap = android.graphics.Bitmap.createBitmap(
+            originalBitmap,
+            0,
+            0,
+            originalBitmap.width,
+            originalBitmap.height,
+            matrix,
+            true
+        )
+
+        val rotatedOut = ByteArrayOutputStream()
+        rotatedBitmap.compress(
+            android.graphics.Bitmap.CompressFormat.JPEG,
+            90,
+            rotatedOut
+        )
+
+        return rotatedOut.toByteArray()
     }
 
     private fun sendImageToBackend(context: Context, uri: Uri) {
