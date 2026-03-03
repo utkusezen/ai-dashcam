@@ -112,6 +112,7 @@ def run(image: Image.Image) -> dict:
 
     speed_tensor = torch.tensor(speed_features).unsqueeze(0)
     speed = speed_model(speed_tensor).item()
+    speed = (speed // 10) * 10
     results["recommended_speed"] = speed
 
     return results
