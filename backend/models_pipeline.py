@@ -10,7 +10,7 @@ from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
 import image_feature_extraction as feature_extraction
 from classes.sign_classification_nn import TrafficSignCNN
 from classes.speed_recommendation_nn import SpeedRecommendationModel
-from utils.draw_image import draw_bounding_boxes
+from utils.draw_image import *
 from utils.image_transforms import resize_image_keep_ratio
 
 MAX_IMG_SIZE = 1024
@@ -66,12 +66,13 @@ def run(image: Image.Image) -> dict:
 
     boxes = detections["boxes"]
     scores = detections["scores"]
+    filter_low_scores = scores > MIN_SCORE
+    boxes = boxes[filter_low_scores]
+    scores = scores[filter_low_scores]
     draw_bounding_boxes(resized_np_bgr, boxes.cpu().numpy(), scores.cpu().numpy())
 
 
     for box, score in zip(boxes, scores):
-        if score < MIN_SCORE:
-            continue
 
         x1, y1, x2, y2 = box.tolist()
         x1 /= scale
@@ -92,12 +93,12 @@ def run(image: Image.Image) -> dict:
 
         results["signs"].append(sign_class)
 
-    brightness, contrast = feature_extraction.compute_brightness_and_contrast(image_np_rgb)
-    _, driveable_area = feature_extraction.compute_driveable_area(image_np_rgb)
+    brightness, contrast = feature_extraction.compute_brightness_and_contrast(image_np_bgr)
+    mask, driveable_area, seed = feature_extraction.compute_driveable_area(image_np_bgr)
 
     (num_lanes, max_lane_len,
      angle_right, angle_left,
-     vp_found, vp_offset_x, vp_offset_y) = feature_extraction.compute_lane_features(image_np_rgb)
+     vp_found, vp_offset_x, vp_offset_y) = feature_extraction.compute_lane_features(image_np_bgr)
 
     num_lanes_norm = np.clip(num_lanes, 0, 6) / 6
     angle_right_norm = angle_right / 90 if angle_right is not None else 0
@@ -120,5 +121,12 @@ def run(image: Image.Image) -> dict:
     speed = speed_model(speed_tensor).item()
     speed = (speed // 10) * 10
     results["recommended_speed"] = speed
+
+    _, w = image_np_bgr.shape[:2]
+    lanes = feature_extraction.__compute_lanes(image_np_bgr)
+    left_lane, right_lane, vp = feature_extraction.__compute_vanishing_point(lanes, w)
+
+    draw_flood_fill(image_np_bgr, mask, seed)
+    draw_vanishing_point(image_np_bgr, left_lane, right_lane, vp)
 
     return results

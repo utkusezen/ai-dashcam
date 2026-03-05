@@ -205,23 +205,23 @@ def compute_driveable_area(img):
     """
     Approximate the drivable area of an image. Only accounts for the bottom half of the image.
     :param img: the image
-    :return: number of driveable area pixels, percentage of drivable area
+    :return: the flood filled mask, percentage of drivable area, starting point of the flood fill
     """
     h, w = img.shape[:2]
     seed_point = __default_seed_point(w, h)
-    seed_point_pixel = img[seed_point[1]][seed_point[0]]
+    seed_point_pixel = img[seed_point[1], seed_point[0]]
     if not is_asphalt_like(seed_point_pixel):
-        return 0, 0
+        return np.zeros((h, w), dtype=np.uint8), 0, seed_point
     mask = np.zeros((h + 2, w + 2), np.uint8)
 
-    cv2.floodFill(img, mask, seed_point, (255, 255, 255), FLOOD_TOLERANCE, FLOOD_TOLERANCE, FLOOD_FLAGS)
+    cv2.floodFill(img.copy(), mask, seed_point, (255, 255, 255), FLOOD_TOLERANCE, FLOOD_TOLERANCE, FLOOD_FLAGS)
     flood_mask = mask[1:-1, 1:-1]
     bottom_half = flood_mask[h // 2:, :]
 
     road_pixels = cv2.countNonZero(bottom_half)
     total_pixels = bottom_half.size
     coverage = (road_pixels / total_pixels)
-    return road_pixels, coverage
+    return flood_mask, coverage, seed_point
 
 def compute_lane_features(img):
     """

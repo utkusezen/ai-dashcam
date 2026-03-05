@@ -33,7 +33,7 @@ def load_data_and_extract_features(path):
         img = cv2.imread(path + "/" + img_path)
 
         brightness, contrast = ft_extr.compute_brightness_and_contrast(img)
-        _, driveable_area = ft_extr.compute_driveable_area(img)
+        _, driveable_area, _ = ft_extr.compute_driveable_area(img)
         (num_lanes, max_lane_len,
          angle_right, angle_left,
          vp_found, vp_offset_x, vp_offset_y) = ft_extr.compute_lane_features(img)
