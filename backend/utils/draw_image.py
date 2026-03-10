@@ -30,7 +30,8 @@ def draw_bounding_boxes(image, boxes, scores):
 def draw_flood_fill(image, mask, seed_point):
     img = image.copy()
     file_path = os.path.join(OUTPUT_PATH_DRIVEABLE_AREA, f"{len(os.listdir(OUTPUT_PATH_DRIVEABLE_AREA))}.jpg")
-    img[~mask] = 0
+
+    img[mask > 0] = (0,255,0)
     cv2.circle(img, seed_point, 5, (0, 0, 255), -1)
     cv2.imwrite(file_path, img)
 

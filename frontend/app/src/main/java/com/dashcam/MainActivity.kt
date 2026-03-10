@@ -32,6 +32,7 @@ import android.graphics.YuvImage
 import androidx.camera.core.ImageProxy
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,7 +65,7 @@ class MainActivity : ComponentActivity() {
 
     // main | auto | single
     private var currentScreen by mutableStateOf("main")
-    private val REQUEST_INTERVAL_MS = 3000L
+    private val REQUEST_INTERVAL_MS = 1000L
     private var lastRequestStartTime = 0L
     @Volatile private var isRequestRunning = false
     private lateinit var cameraExecutor: java.util.concurrent.ExecutorService
@@ -451,10 +452,13 @@ fun ResultScreen(
     androidx.compose.foundation.layout.Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(horizontal = 16.dp, vertical = 16.dp)
     ) {
 
-        Text("Running Analysis...")
+        Text(
+            text = "Running Analysis...",
+            modifier = Modifier.padding(top = 8.dp)
+        )
 
         result?.let {
 
@@ -463,8 +467,9 @@ fun ResultScreen(
 
             Text(
                 text = "$lowerBound - $upperBound km/h",
-                style = androidx.compose.material3.MaterialTheme.typography.headlineLarge,
-                modifier = Modifier.padding(vertical = 16.dp)
+                style = MaterialTheme.typography.headlineLarge,
+                modifier = Modifier
+                    .padding(start = 0.dp, top = 16.dp)
             )
 
             if (it.signs.isNotEmpty()) {
