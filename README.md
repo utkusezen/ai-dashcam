@@ -24,4 +24,4 @@ python app.py
 
 ### Android App
 
-Install ai-dashcam.apk on a android phone.
+Install ai-dashcam.apk on an android phone.
