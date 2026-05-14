@@ -1,19 +1,21 @@
 import os
+from collections import Counter
+
 import cv2
 import numpy as np
 import pandas as pd
 import torch
 from matplotlib import pyplot as plt
 from torch import nn, optim
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, random_split, WeightedRandomSampler
 from tqdm import tqdm
 from math import floor
 
 import image_feature_extraction as ft_extr
 from classes.speed_recommendation_nn import SpeedRecommendationModel
 
-DATA_PATH = "data/bdd100k/bdd100k/bdd100k/images/10k/train"
-LABELS_PATH = "data/bdd100k/manual_speed_recommendation_labels.csv"
+DATA_PATH = "data/Speed Recommendation/images"
+LABELS_PATH = "data/Speed Recommendation/labels.csv"
 METRICS_PATH = "metrics/speed_recommendation_metrics.csv"
 
 EPOCHS = 100
@@ -73,8 +75,8 @@ def range_to_discrete_value(range_label:str):
     return np.nan
 
 labels = pd.read_csv(LABELS_PATH)
-labels = labels.drop(columns=["annotator", "lead_time", "updated_at", "created_at", "annotation_id", "id"])
-labels["image"] = [name[24:] for name in labels["image"]]
+#labels = labels.drop(columns=["annotator", "lead_time", "updated_at", "created_at", "annotation_id", "id"])
+#labels["image"] = [name[24:] for name in labels["image"]]
 labels.sort_values("image", inplace=True)
 y = labels["choice"].apply(range_to_discrete_value)
 
@@ -82,13 +84,15 @@ data = load_data_and_extract_features(DATA_PATH)
 data.sort_values("image", inplace=True)
 data.drop(columns=["image"], inplace=True)
 
-data["speed"] = y
+"""data["speed"] = y
 y_high = data[data["speed"] >= 60]
 y_low = data[data["speed"] < 60]
 upsampled = y_high.sample(replace=True, n=len(y_low)//2, random_state=42)
 data = pd.concat([y_low, upsampled])
 y = data["speed"].to_numpy().reshape(-1, 1)
 data.drop(columns=["speed"], inplace=True)
+"""
+y = y.to_numpy().reshape(-1, 1)
 X = data.to_numpy()
 
 class SpeedRecommendationDataset(Dataset):
@@ -122,20 +126,31 @@ dataset = SpeedRecommendationDataset(features=X, labels=y)
 dummy_set = SpeedRecommendationDataset(features=np.zeros((1000, 10), dtype=float), labels=np.ones((1000, 1), dtype=float))
 train_set, test_set = random_split(dataset, [0.8, 0.2])
 
-train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, shuffle=True)
+
+train_labels = y.flatten()[train_set.indices]
+class_counts = Counter(train_labels)
+print(class_counts)
+
+class_weights = {cls: 1.0 / count for cls, count in class_counts.items()}
+sample_weights = [class_weights[label] for label in train_labels]
+sampler = WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights), replacement=True)
+
+train_loader = DataLoader(train_set, batch_size=BATCH_SIZE, sampler=sampler)
 test_loader = DataLoader(test_set, batch_size=BATCH_SIZE, shuffle=True)
 dummy_loader = DataLoader(dummy_set, batch_size=BATCH_SIZE, shuffle=True)
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 model = SpeedRecommendationModel().to(device)
-loss_fn = nn.MSELoss()
+loss_fn = nn.SmoothL1Loss()
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
-#pd.Series(y.flatten()).hist(bins=20)
-#plt.xlabel("Geschwindigkeit (Label)")
-#plt.ylabel("Anzahl Samples")
-#plt.title("Verteilung der Geschwindigkeits-Labels")
-#plt.show()
+"""
+pd.Series(y.flatten()).hist(bins=20)
+plt.xlabel("velocity")
+plt.ylabel("sample size")
+plt.title("velocity-label distribution")
+plt.show()
+"""
 
 model.train()
 for epoch in range(EPOCHS):
@@ -175,7 +190,7 @@ with torch.no_grad():
             pred = pred.item()
             truth = truth.item()
             deviance = abs(pred - truth)
-            bucket_pred = (pred // 10) * 10
+            bucket_pred = int((np.clip(pred, 10, 110) // 10) * 10)
             bucket_deviance = abs(bucket_pred - truth)
             num_overshot += 1 if bucket_pred > truth else 0
             num_undershot += 1 if bucket_pred < truth else 0
@@ -209,4 +224,4 @@ metrics = pd.DataFrame(data={"Accuracy": [accuracy], "Adjacent Accuracy": [adjac
                                 "Overshot Rate", "Undershot Rate", "Major Error Rate"])
 metrics.to_csv(METRICS_PATH, mode='a', header=not os.path.exists(METRICS_PATH), index=False)
 
-torch.save(model, "models/speed_recommendation_model.pt")
+torch.save(model.state_dict(), "models/speed_recommendation_model_state.pt")

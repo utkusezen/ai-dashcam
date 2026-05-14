@@ -42,6 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.ui.layout.ContentScale
 
 data class ApiResult(
     val recommendedSpeed: Int,
@@ -49,14 +52,17 @@ data class ApiResult(
 )
 
 private val speedLimitMap = mapOf(
-    0 to 20,
-    1 to 30,
-    2 to 50,
-    3 to 60,
-    4 to 70,
-    5 to 80,
-    7 to 100,
-    8 to 120
+    0 to 5,
+    1 to 15,
+    2 to 30,
+    3 to 40,
+    4 to 50,
+    5 to 60,
+    6 to 70,
+    7 to 80,
+    58 to 20,
+    60 to 100,
+    61 to 120
 )
 
 class MainActivity : ComponentActivity() {
@@ -403,6 +409,7 @@ fun MainScreen(
     androidx.compose.foundation.layout.Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(24.dp),
         horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
         verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center
@@ -452,6 +459,7 @@ fun ResultScreen(
     androidx.compose.foundation.layout.Column(
         modifier = Modifier
             .fillMaxSize()
+            .statusBarsPadding()
             .padding(horizontal = 16.dp, vertical = 16.dp)
     ) {
 
@@ -483,7 +491,7 @@ fun ResultScreen(
                     it.signs.forEach { signId ->
 
                         val imageBitmap = remember(signId) {
-                            context.assets.open("traffic-signs-meta/$signId.png")
+                            context.assets.open("traffic-signs/$signId.png")
                                 .use { input ->
                                     android.graphics.BitmapFactory
                                         .decodeStream(input)
@@ -494,9 +502,10 @@ fun ResultScreen(
                         androidx.compose.foundation.Image(
                             bitmap = imageBitmap,
                             contentDescription = null,
+                            contentScale = ContentScale.Fit,
                             modifier = Modifier
-                                .weight(1f)
                                 .padding(4.dp)
+                                .size(72.dp)
                         )
                     }
                 }

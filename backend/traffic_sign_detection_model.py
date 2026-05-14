@@ -350,5 +350,6 @@ with torch.no_grad():
             total_signs += len(true_boxes)
 
 
-print(f"Signs Detected: {found_signs} / {total_signs} signs found.")
-torch.save(model, "models/sign_detection_model.pt")
+with open("output/detection/result.txt", "a") as f:
+    f.write(f"Signs Detected: {found_signs} / {total_signs} signs found.\n")
+torch.save(model.state_dict(), "models/sign_detection_model_state.pt")
