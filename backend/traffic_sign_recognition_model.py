@@ -1,78 +1,81 @@
 import os
-import pandas as pd
+from pathlib import Path
+
 import numpy as np
-import torch
+import pandas as pd
 import seaborn as sns
+import torch
+from PIL import Image
 from matplotlib import pyplot as plt
 from sklearn.metrics import confusion_matrix
+from sklearn.utils import shuffle
 from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from PIL import Image
 from tqdm import tqdm
 
 from classes.sign_classification_nn import TrafficSignCNN
 
 IMG_SIZE = (64, 64)
-EPOCHS = 10
-LEARNING_RATE = 1e-3
+EPOCHS = 20
+LEARNING_RATE = 1e-4
 BATCH_SIZE = 64
-TRAIN_PATH = "data/GTSRB/Train.csv"
-TEST_PATH = "data/GTSRB/Test.csv"
+TRAIN_PATH = "data/Classification/images"
+TEST_PATH = "data/Classification/test"
 METRICS_PATH = "metrics/recognition_metrics.csv"
 
 
-train_df = pd.read_csv(TRAIN_PATH, sep='\t')
-test_df = pd.read_csv(TEST_PATH, sep='\t')
-
-train_df = pd.DataFrame(data=[row[0].split(',') for row in train_df.values.tolist()], columns=train_df.columns.values[0].split(','))
-test_df = pd.DataFrame(data=[row[0].split(',') for row in test_df.values.tolist()], columns=test_df.columns.values[0].split(','))
-
-def extract_sign_data(df):
+def extract_sign_data(base_path):
     """
-    Extract sign data from the images
-    :param df: dataframe containing attributes of the images
-    :return: extracted images of signs with the corresponding labels
+    Load images and labels from folder structure.
+
+    Folder names are interpreted as class labels.
     """
+
     images = []
     labels = []
 
-    for _, row in tqdm(df.iterrows(), total=len(df)):
-        img_path = os.path.join('data/GTSRB', row['Path'])
-        label = int(row['ClassId'])
+    base_path = Path(base_path)
 
-        bounding_box = {
-            "upper_left_x": int(row['Roi.X1']),
-            "upper_left_y": int(row['Roi.Y1']),
-            "lower_right_x": int(row['Roi.X2']),
-            "lower_right_y": int(row['Roi.Y2'])
-        }
+    for class_dir in tqdm(list(base_path.iterdir())):
 
-        image = Image.open(img_path)
-        image = image.crop((bounding_box["upper_left_x"], bounding_box["upper_left_y"],
-                            bounding_box["lower_right_x"], bounding_box["lower_right_y"]))
-        image = image.resize(IMG_SIZE)
-        image = np.array(image)
+        if not class_dir.is_dir():
+            continue
 
-        images.append(image)
-        labels.append(label)
+        label = int(class_dir.name)
 
-    return images, labels
+        for img_path in class_dir.iterdir():
 
-train_x, train_y = extract_sign_data(train_df)
-test_x, test_y = extract_sign_data(test_df)
+            if not img_path.is_file():
+                continue
+
+            try:
+                image = Image.open(img_path).convert("RGB")
+                image = image.resize(IMG_SIZE)
+                image = np.array(image)
+
+                images.append(image)
+                labels.append(label)
+
+            except Exception as e:
+                print(f"Image could not be opened {img_path}: {e}")
+
+    return np.array(images), np.array(labels)
+
+
+train_x, train_y = extract_sign_data(TRAIN_PATH)
+test_x, test_y = extract_sign_data(TEST_PATH)
 num_classes = len(set(train_y))
 
-train_x = np.array(train_x)
-train_y = np.array(train_y)
-test_x = np.array(test_x)
-test_y = np.array(test_y)
+train_x, train_y = shuffle(train_x, train_y, random_state=42)
+test_x, test_y = shuffle(test_x, test_y, random_state=42)
 
 
 class TrafficSignDataset(Dataset):
     """
     A PyTorch Dataset class to simplify access and transformations on the data
     """
+
     def __init__(self, images, labels, transform=None):
         self.images = images
         self.labels = labels
@@ -92,7 +95,6 @@ class TrafficSignDataset(Dataset):
             image = self.transform(image)
 
         return image, torch.tensor(label, dtype=torch.long)
-
 
 
 transform = transforms.Compose([
@@ -137,7 +139,6 @@ for epoch in range(EPOCHS):
     print()
     print(f"Epoch {epoch + 1}/{EPOCHS}, Loss: {avg_loss:.4f}, Accuracy: {train_accuracy:.2f}%")
 
-
 model.eval()
 all_predictions = []
 total = len(test_loader) * BATCH_SIZE
@@ -149,8 +150,6 @@ with torch.no_grad():
         outputs = model(images)
         _, predictions = outputs.max(1)
         all_predictions.extend(predictions.cpu().numpy())
-
-torch.save(model, "models/sign_recognition_model.pt")
 
 conf_matrix = confusion_matrix(test_y, all_predictions)
 TP = np.diag(conf_matrix)
@@ -164,8 +163,7 @@ f1_avg = np.mean(f1)
 print(f"Test Accuracy: {accuracy:.4f}")
 print(f"Test F1-Score: {f1_avg:.4f}")
 
-
-plt.figure(figsize=(15,12))
+plt.figure(figsize=(15, 12))
 sns.heatmap(conf_matrix, annot=True, fmt="d", cmap="Blues")
 plt.xlabel("Predicted")
 plt.ylabel("True")
@@ -177,4 +175,4 @@ metrics = pd.DataFrame(data={"Accuracy": [accuracy], "F1-Score": [f1_avg],
                        columns=["Accuracy", "F1-Score", "Precision", "Recall"])
 metrics.to_csv(METRICS_PATH, mode='a', header=not os.path.exists(METRICS_PATH), index=False)
 
-
+torch.save(model.state_dict(), "models/sign_recognition_model_state.pt")

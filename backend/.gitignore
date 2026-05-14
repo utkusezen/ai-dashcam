@@ -2,3 +2,6 @@
 /data/GTSRB
 /data/GTSDB_TT100k
 /output/live
+/data/Classification
+/data/Speed Recommendation
+/data/Detection
