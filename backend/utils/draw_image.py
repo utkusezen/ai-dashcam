@@ -5,6 +5,10 @@ OUTPUT_PATH_BOUNDING_BOXES = "output/live/detection"
 OUTPUT_PATH_DRIVEABLE_AREA = "output/live/driveable_area"
 OUTPUT_PATH_VANISHING_POINT = "output/live/vanishing_point"
 
+os.makedirs(OUTPUT_PATH_BOUNDING_BOXES, exist_ok=True)
+os.makedirs(OUTPUT_PATH_DRIVEABLE_AREA, exist_ok=True)
+os.makedirs(OUTPUT_PATH_VANISHING_POINT, exist_ok=True)
+
 def draw_bounding_boxes(image, boxes, scores):
     """
     Draws predicted bounding boxes on an image with corresponding scores.
