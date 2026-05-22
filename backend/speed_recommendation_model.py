@@ -5,11 +5,9 @@ import cv2
 import numpy as np
 import pandas as pd
 import torch
-from matplotlib import pyplot as plt
 from torch import nn, optim
 from torch.utils.data import Dataset, DataLoader, random_split, WeightedRandomSampler
 from tqdm import tqdm
-from math import floor
 
 import image_feature_extraction as ft_extr
 from classes.speed_recommendation_nn import SpeedRecommendationModel
@@ -75,8 +73,6 @@ def range_to_discrete_value(range_label:str):
     return np.nan
 
 labels = pd.read_csv(LABELS_PATH)
-#labels = labels.drop(columns=["annotator", "lead_time", "updated_at", "created_at", "annotation_id", "id"])
-#labels["image"] = [name[24:] for name in labels["image"]]
 labels.sort_values("image", inplace=True)
 y = labels["choice"].apply(range_to_discrete_value)
 
@@ -84,14 +80,6 @@ data = load_data_and_extract_features(DATA_PATH)
 data.sort_values("image", inplace=True)
 data.drop(columns=["image"], inplace=True)
 
-"""data["speed"] = y
-y_high = data[data["speed"] >= 60]
-y_low = data[data["speed"] < 60]
-upsampled = y_high.sample(replace=True, n=len(y_low)//2, random_state=42)
-data = pd.concat([y_low, upsampled])
-y = data["speed"].to_numpy().reshape(-1, 1)
-data.drop(columns=["speed"], inplace=True)
-"""
 y = y.to_numpy().reshape(-1, 1)
 X = data.to_numpy()
 
@@ -144,13 +132,6 @@ model = SpeedRecommendationModel().to(device)
 loss_fn = nn.SmoothL1Loss()
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=WEIGHT_DECAY)
 
-"""
-pd.Series(y.flatten()).hist(bins=20)
-plt.xlabel("velocity")
-plt.ylabel("sample size")
-plt.title("velocity-label distribution")
-plt.show()
-"""
 
 model.train()
 for epoch in range(EPOCHS):
@@ -224,4 +205,4 @@ metrics = pd.DataFrame(data={"Accuracy": [accuracy], "Adjacent Accuracy": [adjac
                                 "Overshot Rate", "Undershot Rate", "Major Error Rate"])
 metrics.to_csv(METRICS_PATH, mode='a', header=not os.path.exists(METRICS_PATH), index=False)
 
-torch.save(model.state_dict(), "models/speed_recommendation_model_state.pt")
+torch.save(model.state_dict(), "models/new_speed_recommendation_model_state.pt")

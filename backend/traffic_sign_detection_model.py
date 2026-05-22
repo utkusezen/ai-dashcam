@@ -273,30 +273,6 @@ test_dataset = TrafficSignDataset(test_x, test_y, MAX_IMG_SIZE, transform)
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=custom_collate_fn, pin_memory=True)
 test_loader = DataLoader(test_dataset, batch_size=BATCH_SIZE, shuffle=True, collate_fn=custom_collate_fn, pin_memory=True)
 
-"""
-for images, targets in tqdm(test_loader):
-    for image, target in zip(images, targets):
-        im = image.permute(1, 2, 0).numpy()
-        draw_bounding_boxes(im, [], [], target["boxes"])
-
-
-counts = []
-for _, targets in tqdm(test_loader):
-    for t in targets:
-        counts.append(len(t["boxes"]))
-
-# ZÃ¤hlen, wie oft jede Anzahl vorkommt
-count_dict = Counter(counts)
-print(count_dict)
-
-# Plotten
-plt.bar(count_dict.keys(), count_dict.values())
-plt.xlabel("Anzahl Schilder pro Bild")
-plt.ylabel("Anzahl Bilder")
-plt.title("Verteilung der Verkehrsschilder im Datensatz")
-plt.show()
-"""
-
 
 #model = torchvision.models.detection.fasterrcnn_mobilenet_v3_large_320_fpn(weights=FasterRCNN_MobileNet_V3_Large_320_FPN_Weights.DEFAULT)
 model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=FasterRCNN_ResNet50_FPN_Weights.COCO_V1)
@@ -350,6 +326,6 @@ with torch.no_grad():
             total_signs += len(true_boxes)
 
 
-with open("output/detection/result.txt", "a") as f:
+with open("metrics/detection_result.txt", "a") as f:
     f.write(f"Signs Detected: {found_signs} / {total_signs} signs found.\n")
-torch.save(model.state_dict(), "models/sign_detection_model_state.pt")
+torch.save(model.state_dict(), "models/new_sign_detection_model_state.pt")

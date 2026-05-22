@@ -18,7 +18,7 @@ from classes.sign_classification_nn import TrafficSignCNN
 
 IMG_SIZE = (64, 64)
 EPOCHS = 20
-LEARNING_RATE = 1e-4
+LEARNING_RATE = 1e-3
 BATCH_SIZE = 64
 TRAIN_PATH = "data/Classification/images"
 TEST_PATH = "data/Classification/test"
@@ -175,4 +175,4 @@ metrics = pd.DataFrame(data={"Accuracy": [accuracy], "F1-Score": [f1_avg],
                        columns=["Accuracy", "F1-Score", "Precision", "Recall"])
 metrics.to_csv(METRICS_PATH, mode='a', header=not os.path.exists(METRICS_PATH), index=False)
 
-torch.save(model.state_dict(), "models/sign_recognition_model_state.pt")
+torch.save(model.state_dict(), "models/new_sign_recognition_model_state.pt")
