@@ -8,7 +8,7 @@
 
 - Python 3.10
 - android smartphone
-- devices in the same wireless network
+- devices running in the same wireless network
 
 ---
 
