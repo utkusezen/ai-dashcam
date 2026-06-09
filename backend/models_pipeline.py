@@ -14,7 +14,7 @@ from utils.draw_image import *
 from utils.image_transforms import resize_image_keep_ratio
 
 MAX_IMG_SIZE = 1024
-CLASSIFICATION_NUM_CLASSES = 43
+CLASSIFICATION_NUM_CLASSES = 65
 MIN_SCORE = 0.6
 BOX_PADDING = 5
 
