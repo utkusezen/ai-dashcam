@@ -6,9 +6,11 @@
 
 ### Prerequisites
 
-- Python 3.10
+- Python 3.10 (conda environment recommended)
 - android smartphone
 - devices running in the same wireless network
+
+(Functionality tested with PyCharm)
 
 ---
 
@@ -16,7 +18,7 @@
 
 ```bash
 cd backend
-pip install -r requirements.txt
+pip install -r ..\requirements.txt
 python app.py
 ```
 
